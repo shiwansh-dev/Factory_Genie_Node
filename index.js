@@ -66,7 +66,7 @@ app.get('/get-data', async (req, res) => {
                                           .sort(sortObj)
                                           .limit(parsedLimit);
 
-        res.json({ success: true, data: results });
+        res.json({ data: results });
 
     } catch (error) {
         console.error('Error in /get-data:', error);
