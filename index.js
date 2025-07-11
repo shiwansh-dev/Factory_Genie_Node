@@ -23,7 +23,7 @@ app.get('/', (req, res) => {
     res.send('🚀 API is running. Use /get-data?collection=your_collection to query.');
 });
 
-// Flexible GET route
+// GET with flexible filters, sorting, limits
 app.get('/get-data', async (req, res) => {
     try {
         const { collection, limit, sortBy, sortOrder = 'asc', ...rawFilters } = req.query;
@@ -32,19 +32,19 @@ app.get('/get-data', async (req, res) => {
             return res.status(400).json({ success: false, message: "Missing required 'collection' parameter." });
         }
 
-        // Use or define model dynamically
+        // Dynamic model creation
         const DynamicModel = mongoose.models[collection] ||
             mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
 
         const parsedLimit = limit ? parseInt(limit) : 50;
 
-        // Build sort object
+        // Sort object
         let sortObj = {};
         if (sortBy) {
             sortObj[sortBy] = sortOrder.toLowerCase() === 'desc' ? -1 : 1;
         }
 
-        // Build filter object with type conversion + exists support
+        // Filter object with support for multiple values and type conversion
         let filterObj = {};
         for (let key in rawFilters) {
             if (['collection', 'limit', 'sortBy', 'sortOrder'].includes(key)) continue;
@@ -53,23 +53,75 @@ app.get('/get-data', async (req, res) => {
                 const field = key.split('__')[0];
                 filterObj[field] = { $exists: rawFilters[key] === 'true' };
             } else {
-                let value = rawFilters[key];
-                if (!isNaN(value)) value = Number(value);
-                else if (value === 'true') value = true;
-                else if (value === 'false') value = false;
-
-                filterObj[key] = value;
+                const values = rawFilters[key].split(',');
+                const converted = values.map(val => {
+                    if (!isNaN(val)) return Number(val);
+                    if (val === 'true') return true;
+                    if (val === 'false') return false;
+                    return val;
+                });
+                filterObj[key] = converted.length === 1 ? converted[0] : { $in: converted };
             }
         }
 
-        const results = await DynamicModel.find(filterObj)
-                                          .sort(sortObj)
-                                          .limit(parsedLimit);
-
-        res.json({ data: results });
+        const results = await DynamicModel.find(filterObj).sort(sortObj).limit(parsedLimit);
+        res.json({ success: true, data: results });
 
     } catch (error) {
         console.error('Error in /get-data:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// PUT endpoint to update any document by ID
+app.put('/update-document', async (req, res) => {
+    try {
+        const { collection, id } = req.query;
+        const updateData = req.body;
+
+        if (!collection || !id) {
+            return res.status(400).json({ success: false, message: "Missing 'collection' or 'id' in query." });
+        }
+
+        const DynamicModel = mongoose.models[collection] ||
+            mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
+
+        const updatedDoc = await DynamicModel.findByIdAndUpdate(id, updateData, { new: true });
+
+        if (!updatedDoc) {
+            return res.status(404).json({ success: false, message: "Document not found." });
+        }
+
+        res.json({ success: true, data: updatedDoc });
+
+    } catch (error) {
+        console.error('Error in /update-document:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// DELETE endpoint to remove any document by ID
+app.delete('/delete-document', async (req, res) => {
+    try {
+        const { collection, id } = req.query;
+
+        if (!collection || !id) {
+            return res.status(400).json({ success: false, message: "Missing 'collection' or 'id' in query." });
+        }
+
+        const DynamicModel = mongoose.models[collection] ||
+            mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
+
+        const deletedDoc = await DynamicModel.findByIdAndDelete(id);
+
+        if (!deletedDoc) {
+            return res.status(404).json({ success: false, message: "Document not found." });
+        }
+
+        res.json({ success: true, message: "Document deleted successfully." });
+
+    } catch (error) {
+        console.error('Error in /delete-document:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
