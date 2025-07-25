@@ -77,28 +77,48 @@ app.get('/get-data', async (req, res) => {
 app.put('/update-document', async (req, res) => {
     try {
         const { collection, id } = req.query;
-        const updateData = req.body;
+        let updateData = req.body;
 
         if (!collection || !id) {
             return res.status(400).json({ success: false, message: "Missing 'collection' or 'id' in query." });
         }
 
+        // Flatten nested objects for dot-notation updates
+        const flattenObject = (obj, prefix = '') => {
+            return Object.keys(obj).reduce((acc, key) => {
+                const value = obj[key];
+                const newKey = prefix ? `${prefix}.${key}` : key;
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    Object.assign(acc, flattenObject(value, newKey));
+                } else {
+                    acc[newKey] = value;
+                }
+                return acc;
+            }, {});
+        };
+
+        updateData = flattenObject(updateData);
+
         const DynamicModel = mongoose.models[collection] ||
             mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
 
-        const updatedDoc = await DynamicModel.findByIdAndUpdate(id, updateData, { new: true });
+        const updatedDoc = await DynamicModel.findByIdAndUpdate(
+            id,
+            { $set: updateData },
+            { new: true }
+        );
 
         if (!updatedDoc) {
             return res.status(404).json({ success: false, message: "Document not found." });
         }
 
         res.json({ success: true, data: updatedDoc });
-
     } catch (error) {
         console.error('Error in /update-document:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });
+
 
 // DELETE endpoint to remove any document by ID
 app.delete('/delete-document', async (req, res) => {
