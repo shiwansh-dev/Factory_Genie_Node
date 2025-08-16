@@ -24,31 +24,30 @@ app.get('/', (req, res) => {
 });
 
 // GET with flexible filters, sorting, limits
+// In your server.js file, update the /get-data endpoint:
 app.get('/get-data', async (req, res) => {
     try {
         const { collection, limit, sortBy, sortOrder = 'asc', ...rawFilters } = req.query;
-
         if (!collection) {
             return res.status(400).json({ success: false, message: "Missing required 'collection' parameter." });
         }
-
+        
         // Dynamic model creation
         const DynamicModel = mongoose.models[collection] ||
             mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
-
+        
         const parsedLimit = limit ? parseInt(limit) : 50;
-
+        
         // Sort object
         let sortObj = {};
         if (sortBy) {
             sortObj[sortBy] = sortOrder.toLowerCase() === 'desc' ? -1 : 1;
         }
-
+        
         // Filter object with support for multiple values and type conversion
         let filterObj = {};
         for (let key in rawFilters) {
             if (['collection', 'limit', 'sortBy', 'sortOrder'].includes(key)) continue;
-
             if (key.endsWith('__exists')) {
                 const field = key.split('__')[0];
                 filterObj[field] = { $exists: rawFilters[key] === 'true' };
@@ -63,10 +62,17 @@ app.get('/get-data', async (req, res) => {
                 filterObj[key] = converted.length === 1 ? converted[0] : { $in: converted };
             }
         }
-
-        const results = await DynamicModel.find(filterObj).sort(sortObj).limit(parsedLimit);
+        
+        // ADD .lean() to ensure _id is included as plain JavaScript object
+        const results = await DynamicModel.find(filterObj)
+            .sort(sortObj)
+            .limit(parsedLimit)
+            .lean(); // This is the key addition!
+        
+        // Log to verify _id is present
+        console.log('Sample result with _id:', results[0]);
+        
         res.json({ success: true, data: results });
-
     } catch (error) {
         console.error('Error in /get-data:', error);
         res.status(500).json({ success: false, error: error.message });
