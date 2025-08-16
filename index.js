@@ -80,51 +80,98 @@ app.get('/get-data', async (req, res) => {
 });
 
 // PUT endpoint to update any document by ID
-// PUT endpoint to update any document by ID (simplified)
+// PUT endpoint to update any document by ID - handles both ObjectId and String IDs
 app.put('/update-document', async (req, res) => {
     try {
         const { collection, id } = req.query;
         let updateData = req.body;
-        
+
         if (!collection || !id) {
-            return res.status(400).json({ success: false, message: "Missing 'collection' or 'id' in query." });
+            return res.status(400).json({ 
+                success: false, 
+                message: "Missing 'collection' or 'id' in query." 
+            });
         }
-        
+
+        console.log(`Updating document with ID: ${id} in collection: ${collection}`);
+        console.log('Update data:', JSON.stringify(updateData, null, 2));
+
         // Flatten nested objects for dot-notation updates
         const flattenObject = (obj, prefix = '') => {
             return Object.keys(obj).reduce((acc, key) => {
                 const value = obj[key];
                 const newKey = prefix ? `${prefix}.${key}` : key;
+                
                 if (value && typeof value === 'object' && !Array.isArray(value)) {
                     Object.assign(acc, flattenObject(value, newKey));
                 } else {
                     acc[newKey] = value;
                 }
+                
                 return acc;
             }, {});
         };
-        
+
         updateData = flattenObject(updateData);
-        
-        const DynamicModel = mongoose.models[collection] ||
-            mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
-        
-        // Use findOneAndUpdate with _id field - works for both ObjectId and String
+        console.log('Flattened update data:', JSON.stringify(updateData, null, 2));
+
+        // Create dynamic model with strict: false to allow any fields
+        const DynamicModel = mongoose.models[collection] || 
+            mongoose.model(collection, new mongoose.Schema({}, { 
+                strict: false,
+                _id: false  // Don't auto-generate _id, use existing ones
+            }), collection);
+
+        // Use findOneAndUpdate instead of findByIdAndUpdate to handle string IDs
         const updatedDoc = await DynamicModel.findOneAndUpdate(
-            { _id: id }, // This works for both ObjectId and String IDs
+            { _id: id }, // Search by exact _id value (works with strings)
             { $set: updateData },
-            { new: true }
+            { 
+                new: true,      // Return updated document
+                upsert: false,  // Don't create if not found
+                runValidators: false // Skip validation for dynamic schema
+            }
         );
-        
+
         if (!updatedDoc) {
-            return res.status(404).json({ success: false, message: "Document not found." });
+            console.error(`Document with ID ${id} not found in collection ${collection}`);
+            return res.status(404).json({ 
+                success: false, 
+                message: "Document not found." 
+            });
         }
-        
-        console.log('Document updated successfully:', updatedDoc._id);
-        res.json({ success: true, data: updatedDoc });
+
+        console.log(`Successfully updated document: ${updatedDoc._id}`);
+        res.json({ 
+            success: true, 
+            data: updatedDoc,
+            message: "Document updated successfully"
+        });
+
     } catch (error) {
         console.error('Error in /update-document:', error);
-        res.status(500).json({ success: false, error: error.message });
+        console.error('Error stack:', error.stack);
+        
+        // Handle specific MongoDB errors
+        if (error.name === 'CastError') {
+            return res.status(400).json({
+                success: false,
+                error: `Invalid ID format: ${error.message}`
+            });
+        }
+        
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({
+                success: false,
+                error: `Validation failed: ${error.message}`
+            });
+        }
+        
+        res.status(500).json({ 
+            success: false, 
+            error: error.message,
+            type: error.name 
+        });
     }
 });
 
