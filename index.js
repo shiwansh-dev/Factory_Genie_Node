@@ -80,15 +80,16 @@ app.get('/get-data', async (req, res) => {
 });
 
 // PUT endpoint to update any document by ID
+// PUT endpoint to update any document by ID (simplified)
 app.put('/update-document', async (req, res) => {
     try {
         const { collection, id } = req.query;
         let updateData = req.body;
-
+        
         if (!collection || !id) {
             return res.status(400).json({ success: false, message: "Missing 'collection' or 'id' in query." });
         }
-
+        
         // Flatten nested objects for dot-notation updates
         const flattenObject = (obj, prefix = '') => {
             return Object.keys(obj).reduce((acc, key) => {
@@ -102,22 +103,24 @@ app.put('/update-document', async (req, res) => {
                 return acc;
             }, {});
         };
-
+        
         updateData = flattenObject(updateData);
-
+        
         const DynamicModel = mongoose.models[collection] ||
             mongoose.model(collection, new mongoose.Schema({}, { strict: false }), collection);
-
-        const updatedDoc = await DynamicModel.findByIdAndUpdate(
-            id,
+        
+        // Use findOneAndUpdate with _id field - works for both ObjectId and String
+        const updatedDoc = await DynamicModel.findOneAndUpdate(
+            { _id: id }, // This works for both ObjectId and String IDs
             { $set: updateData },
             { new: true }
         );
-
+        
         if (!updatedDoc) {
             return res.status(404).json({ success: false, message: "Document not found." });
         }
-
+        
+        console.log('Document updated successfully:', updatedDoc._id);
         res.json({ success: true, data: updatedDoc });
     } catch (error) {
         console.error('Error in /update-document:', error);
